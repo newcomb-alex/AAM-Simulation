@@ -54,6 +54,8 @@ class Airspace:
         waypoints = []
         for name in waypoint_names:
             if name.startswith("SM:"):
+                ### Never entering this branch.
+                print("PASS 2")
                 smp_key = name.split("SM:")[1]
                 # Find matching SplitMergePoint by concatenating names or a stored attribute
                 smp_obj = next(
@@ -61,10 +63,12 @@ class Airspace:
                     None
                 )
                 if smp_obj is None:
+                    print("PASS 3")
                     raise ValueError(f"SplitMergePoint '{smp_key}' not found.")
                 waypoints.append(smp_obj)
             else:
                 if name not in self.vertiports:
+                    print("PASS 5")
                     raise ValueError(f"Vertiport '{name}' not found.")
                 waypoints.append(self.vertiports[name])
         

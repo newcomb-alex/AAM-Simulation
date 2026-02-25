@@ -74,7 +74,7 @@ class Simulation:
                     for uav in self.uavs.values()
                     if uav.state in {UAV.STATE_CLIMB, UAV.STATE_CRUISE, UAV.STATE_DESCENT}
                 )
-                # Condition 2: Recent landing
+                # Condition 2: Recent landing 
                 recent_landing = (self.time - v.last_landing_time) < config.TIME_BETWEEN_LANDING_TAKEOFF
 
                 # Condition 3: Recent takeoff

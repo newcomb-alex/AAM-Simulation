@@ -1,6 +1,6 @@
 import csv
 from aam_simulation import config
-from aam_simulation.__main__ import build_standard_airspace, build_simple_airspace
+from aam_simulation.airspace_preset import get_airspace, get_num_routes
 from aam_simulation.simulation import Simulation
 
 def run_experiment():
@@ -30,13 +30,9 @@ def run_experiment():
         collision_list = []
 
         for run in range(runs_per_config):
-            # rebuild airspace and distribute UAVs
-            if config.AIRSPACE == "Standard":
-                airspace = build_standard_airspace()
-                num_uavs = {i: per_route for i in range (1, 7)}
-            else:
-                airspace = build_simple_airspace()
-                num_uavs = {i: per_route for i in range (1, 3)}
+            airspace = get_airspace(config.AIRSPACE)                                                                                                                                                        
+            num_routes = get_num_routes(config.AIRSPACE)                                                                                                                                                    
+            num_uavs = {i: per_route for i in range(1, num_routes + 1)}   
 
             # run simulation
             sim = Simulation(
