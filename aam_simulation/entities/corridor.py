@@ -1,6 +1,7 @@
 from typing import Optional
 import numpy as np
 from aam_simulation.sim_utils import unit_vector
+from aam_simulation import config
 
 class Corridor:
     def __init__(self,
@@ -15,6 +16,21 @@ class Corridor:
         
         self.start_pos = self.start.position
         self.end_pos = self.end.position
+
+        self.req_horiz_dist_ab = self._compute_req_horiz_dist(altitude_ab)
+        self.req_horiz_dist_ba = self._compute_req_horiz_dist(altitude_ba)
+
+    def _compute_req_horiz_dist(self, cruise_altitude: float) -> float:
+        if cruise_altitude > 0:
+            t_descent_sec = cruise_altitude / config.DESCENT_RATE_FPS
+            avg_speed_ftps = (config.CRUISE_SPEED_KT * config.KNOTS_TO_FT_PER_SEC) / 2.0
+            return avg_speed_ftps * t_descent_sec
+        return 0.0
+
+    def get_req_horiz_dist_for_descent(self, origin, destination) -> float:
+        if origin.name == self.start.name and destination.name == self.end.name:
+            return self.req_horiz_dist_ab
+        return self.req_horiz_dist_ba
 
     def get_segment_info(self, origin, destination) -> Optional[tuple]:
         """

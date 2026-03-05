@@ -39,7 +39,7 @@ class Vertiport:
 
     def request_takeoff(self, uav_id: int) -> bool:
         """Store UAV as pending. Actual queueing is handled during tick()."""
-        if uav_id not in self.pending_takeoff_ids:
+        if uav_id not in self.pending_takeoff_ids and uav_id not in self.takeoff_queue:
             self.pending_takeoff_ids.append(uav_id)
     
     def assign_charge_station(self, uav_id: int) -> bool:

@@ -54,7 +54,10 @@ class UAV:
         self.evasion_type = None
         self.original_speed = None
         self.original_altitude = None
+        self.original_heading = None
         self.evasion_phase = None
+        self.secondary_conflict_detected = False
+        self.min_vert_sep = None
 
     def _find_current_corridor(self):
         """
@@ -166,22 +169,15 @@ class UAV:
                 self.state = UAV.STATE_DESCENT
                 return
             
-            _, origin, dest, cruise_altitude, heading_unit = corridor_info
+            corridor_obj, origin, dest, cruise_altitude, heading_unit = corridor_info
 
             # Compute how far (2D) we are currently from the next waypoint (dest)
             dest_xy = np.array([dest.position[0], dest.position[1]])
             cur_xy = np.array([self.position[0], self.position[1]])
             horiz_dist_to_dest_ft = np.linalg.norm(dest_xy - cur_xy)
 
-            # Compute the required horizontal distance to descent diagonally from cruise to 0
-            if cruise_altitude > 0:
-                descent_rate_fps = config.DESCENT_RATE_FPS
-                t_descent_sec = cruise_altitude / descent_rate_fps
-                initial_speed_ftps = config.CRUISE_SPEED_KT * config.KNOTS_TO_FT_PER_SEC
-                avg_speed_ftps = initial_speed_ftps / 2.0 # (cruise speed + 0) / 2, average of the initial and final speed
-                required_horiz_dist_for_descent = avg_speed_ftps * t_descent_sec
-            else:
-                required_horiz_dist_for_descent = 0.0
+            # Look up the precomputed required horizontal distance to descend from cruise to 0
+            required_horiz_dist_for_descent = corridor_obj.get_req_horiz_dist_for_descent(origin, dest)
             
             # If we are within that descent distance and dest is a vertiport, begin diagonal descent
             if isinstance(dest, Vertiport) and horiz_dist_to_dest_ft <= required_horiz_dist_for_descent:
@@ -312,9 +308,12 @@ class UAV:
         
         self.original_speed = self.speed
         self.original_altitude = self.altitude
+        self.original_heading = self.heading.copy()
         self.evasion_start_time = current_time
         self.in_conflict = True
         self.evasion_type = designation
+        self.secondary_conflict_detected = False
+        self.min_vert_sep = min_vert_sep
 
         if designation == "AHEAD":
             if self.speed >= config.MIN_SPEED_TO_SLOW:
@@ -342,6 +341,9 @@ class UAV:
             self.state = UAV.STATE_EVASIVE
             self.evasion_phase = "TURN_LEFT_OUTBOUND"
     
+    def notify_secondary_conflict(self):
+        self.secondary_conflict_detected = True
+
     def _handle_evasive(self, current_time: int):
         """
         Contains logic to handle the evasive manuever depending on if the intruding UAV is
@@ -366,6 +368,28 @@ class UAV:
         current_heading_2d = unit_vector(self.heading[:2])
         turn_rate_out = math.radians(config.TURN_RATE_OUTBOUND)
         turn_rate_rec = math.radians(config.TURN_RATE_RECOVER)
+
+        # Secondary conflict during turn-out → abort and climb
+        if self.secondary_conflict_detected and self.evasion_phase in {"TURN_RIGHT_OUTBOUND", "TURN_LEFT_OUTBOUND"}:
+            self.secondary_conflict_detected = False
+            self.evasion_phase = "TURN_BACK_FOR_CLIMB"
+
+        if self.evasion_phase == "TURN_BACK_FOR_CLIMB":
+            orig_h_2d = unit_vector(self.original_heading[:2])
+            angle_diff = signed_angle_between(current_heading_2d, orig_h_2d)
+            if abs(angle_diff) <= turn_rate_out:
+                self.heading = np.array([orig_h_2d[0], orig_h_2d[1], 0.0])
+                self.altitude += self.min_vert_sep
+                self.evasion_phase = None
+                self.state = UAV.STATE_HOLD
+            else:
+                sign = +1 if angle_diff > 0 else -1
+                angle = sign * turn_rate_out
+                rot = np.array([[math.cos(angle), -math.sin(angle)],
+                                [math.sin(angle),  math.cos(angle)]])
+                new_h = rot.dot(current_heading_2d)
+                self.heading = np.array([new_h[0], new_h[1], 0.0])
+            return
 
         if elapsed <= 5:
             sign = -1 if self.evasion_type == "LEFT" else +1

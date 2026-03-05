@@ -188,6 +188,11 @@ class Simulation:
                         # If the UAV is not already initiating an evasive manuever, initiate one
                         if not u1.in_conflict:
                             u1.initiate_evasive_action(u2, self.time, self.min_vert_sep)
+                            continue
+                        if (u1.evasion_type in {"LEFT", "RIGHT"}
+                                and u1.evasion_start_time is not None
+                                and (self.time - u1.evasion_start_time) <= 5):
+                            u1.notify_secondary_conflict()
         
         # After conflict handling, allow mid-flight deviations
         for uav_id in airborne_ids:
