@@ -12,6 +12,7 @@ RUN_TIME_SEC = 12 * 60 * 60 # run time of simulation, i.e. how long you want the
 # Climb/descent rates (ft/s)
 CLIMB_RATE_FPS = 900.0 / 60.0
 DESCENT_RATE_FPS = 450.0 / 60.0
+EVASIVE_CLIMB_RATE_FPS = CLIMB_RATE_FPS / 2.0  # slower climb during evasive maneuver
 
 # Speeds (knots)
 CRUISE_SPEED_KT = 115.0

@@ -1,10 +1,8 @@
 import math
 import random
 import numpy as np
-from typing import Optional
 from aam_simulation.sim_utils import unit_vector, signed_angle_between
 from aam_simulation.entities.vertiport import Vertiport
-from aam_simulation.entities.corridor import Corridor, SplitMergePoint
 from aam_simulation.entities.route import Route
 from aam_simulation import config
 
@@ -22,15 +20,13 @@ class UAV:
                  uav_id: int,
                  route: Route,
                  corridor_list: list,
-                 split_merge_points: list,
                  ref_lat: float):
         self.id = uav_id
         self.route = route
         self.corridors = corridor_list
-        self.smp = split_merge_points
         self.ref_lat = ref_lat
 
-        origin_vert = route.waypoints[0] #type: Vertiport
+        origin_vert = route.waypoints[0]
         self.position = np.array([origin_vert.position[0], origin_vert.position[1], 0.0])
         self.speed = 0.0 # knots
         self.heading = np.array([0.0, 0.0, 0.0])
@@ -38,7 +34,6 @@ class UAV:
 
         self.state = UAV.STATE_TAXI
         self.waiting_for_charge = False
-        self.time_in_current_state = 0
         self.current_leg_index = 0
         self.altitude = 0.0
         self.destination_vertiport = route.waypoints[-1]
@@ -58,12 +53,10 @@ class UAV:
         self.evasion_phase = None
         self.secondary_conflict_detected = False
         self.min_vert_sep = None
+        self.evasive_climb_target = None
 
     def _find_current_corridor(self):
-        """
-        Return (Corridor, origin_vert, dest_vert, altitude, heading_unit) for the current leg.
-        If none, return None.
-        """
+        """Return (corridor, origin, dest, altitude, heading_unit) for the current leg, or None."""
         if self.current_leg_index >= len(self.route.legs):
             return None
         origin, dest = self.route.legs[self.current_leg_index]
@@ -80,7 +73,7 @@ class UAV:
         conflict recovery, charging countdown, and other UAV state attributes.
         """
 
-        # In all phases except for charging/taxi, update trip duration
+        # Update trip duration in all active flight phases (reset on takeoff, so taxi wait excluded)
         if self.state in {
             UAV.STATE_CLIMB,
             UAV.STATE_CRUISE,
@@ -272,15 +265,32 @@ class UAV:
             _, _, _, _, heading_unit = corridor_info
             self.heading = np.array([heading_unit[0], heading_unit[1], 0.0])
         self.trip_duration = 0
-        self.time_in_current_state = 0
 
-    def check_for_conflicts(self, other, min_lat_sep: float, min_vert_sep: float) -> bool:
+        # Clear any stale conflict/evasion state from the previous trip
+        self.in_conflict = False
+        self.evasion_start_time = None
+        self.evasion_type = None
+        self.evasion_phase = None
+        self.original_speed = None
+        self.original_altitude = None
+        self.original_heading = None
+        self.secondary_conflict_detected = False
+        self.evasive_climb_target = None
+
+    def check_lateral_conflict(self, other, min_lat_sep: float) -> bool:
+        """Returns True if horizontal separation is below the minimum (ignores altitude)."""
+        horiz = math.hypot(self.position[0] - other.position[0],
+                           self.position[1] - other.position[1])
+        return horiz < (min_lat_sep + self.sphere_radius + other.sphere_radius)
+
+    def check_for_conflicts(self, other, min_lat_sep: float, min_vert_sep: float):
+        """Returns (horiz_d, vert_d) if in conflict, else None."""
         horiz = math.hypot(self.position[0] - other.position[0],
                            self.position[1] - other.position[1])
         vert = abs(self.altitude - other.altitude)
         if horiz < (min_lat_sep + self.sphere_radius + other.sphere_radius) and vert < min_vert_sep:
-            return True
-        return False
+            return horiz, vert
+        return None
     
     def initiate_evasive_action(self, intruder, current_time: int, min_vert_sep: float):
         """
@@ -321,17 +331,19 @@ class UAV:
                 self.state = UAV.STATE_EVASIVE
                 self.evasion_phase = "SPEED_REDUCTION"
             else:
-                self.altitude += min_vert_sep
-                self.state = UAV.STATE_HOLD
-        
+                self.evasive_climb_target = self.altitude + min_vert_sep
+                self.state = UAV.STATE_EVASIVE
+                self.evasion_phase = "EVASIVE_CLIMB"
+
         elif designation == "BEHIND":
             if self.speed <= config.MAX_SPEED_TO_INCREASE:
                 self.speed += 2.0
                 self.state = UAV.STATE_EVASIVE
                 self.evasion_phase = "SPEED_INCREASE"
             else:
-                self.altitude += min_vert_sep
-                self.state = UAV.STATE_HOLD
+                self.evasive_climb_target = self.altitude + min_vert_sep
+                self.state = UAV.STATE_EVASIVE
+                self.evasion_phase = "EVASIVE_CLIMB"
         
         elif designation == "LEFT":
             self.state = UAV.STATE_EVASIVE
@@ -379,9 +391,8 @@ class UAV:
             angle_diff = signed_angle_between(current_heading_2d, orig_h_2d)
             if abs(angle_diff) <= turn_rate_out:
                 self.heading = np.array([orig_h_2d[0], orig_h_2d[1], 0.0])
-                self.altitude += self.min_vert_sep
-                self.evasion_phase = None
-                self.state = UAV.STATE_HOLD
+                self.evasive_climb_target = self.altitude + self.min_vert_sep
+                self.evasion_phase = "EVASIVE_CLIMB"
             else:
                 sign = +1 if angle_diff > 0 else -1
                 angle = sign * turn_rate_out
@@ -389,6 +400,13 @@ class UAV:
                                 [math.sin(angle),  math.cos(angle)]])
                 new_h = rot.dot(current_heading_2d)
                 self.heading = np.array([new_h[0], new_h[1], 0.0])
+            return
+
+        if self.evasion_phase == "EVASIVE_CLIMB":
+            self.altitude = min(self.altitude + config.EVASIVE_CLIMB_RATE_FPS, self.evasive_climb_target)
+            if self.altitude >= self.evasive_climb_target:
+                self.evasion_phase = None
+                self.state = UAV.STATE_HOLD
             return
 
         if elapsed <= 5:
@@ -433,6 +451,7 @@ class UAV:
                 for i in range(len(self.flight_plan)-1)
             ]
             self.current_leg_index = 0
+            self.destination_vertiport = self.route.alternate_vertiport
     
     def update_eta(self):
         """Updates the current ETA of the UAV in minutes"""

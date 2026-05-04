@@ -53,9 +53,10 @@ class Corridor:
         return altitude, heading_3d
     
 class SplitMergePoint:
-    def __init__(self, lat: float, lon: float, ref_lat: float, vertiport_a, vertiport_b):
+    def __init__(self, name: str, lat: float, lon: float, ref_lat: float, vertiport_a, vertiport_b):
         from aam_simulation.sim_utils import latlon_to_cartesian
 
+        self.name = name
         self.lat = lat
         self.lon = lon
         self.position = latlon_to_cartesian(lat, lon, ref_lat)
