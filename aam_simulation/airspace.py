@@ -31,17 +31,26 @@ class Airspace:
         """
         v_a = self.vertiports[vert_a_name]
         v_b = self.vertiports[vert_b_name]
-        smp = SplitMergePoint(lat, lon, self.ref_lat, v_a, v_b)
+        smp = SplitMergePoint(name, lat, lon, self.ref_lat, v_a, v_b)
         self.split_merge_points.append(smp)
         return smp
     
+    def _get_waypoint(self, name: str):
+        if name in self.vertiports:
+            return self.vertiports[name]
+        smp = next((s for s in self.split_merge_points if s.name == name), None)
+        if smp is not None:
+            return smp
+        raise ValueError(f"Waypoint '{name}' not found.")
+
     def add_corridor(self, start_name: str, end_name: str, alt_ab: float, alt_ba: float) -> Corridor:
-        """ 
-        Generates a corridor object from the starting vertiport and ending vertiport names, as well as
-        the altitudes of the routes in the corridor. Adds the corridor into the list of corridors.
         """
-        v_a = self.vertiports[start_name]
-        v_b = self.vertiports[end_name]
+        Generates a corridor object from the starting and ending waypoint names (vertiport or
+        split/merge point), as well as the altitudes of the routes in the corridor.
+        Adds the corridor into the list of corridors.
+        """
+        v_a = self._get_waypoint(start_name)
+        v_b = self._get_waypoint(end_name)
         corridor = Corridor(v_a, v_b, alt_ab, alt_ba)
         self.corridors.append(corridor)
         return corridor
@@ -57,7 +66,7 @@ class Airspace:
                 smp_key = name.split("SM:")[1]
                 # Find matching SplitMergePoint by concatenating names or a stored attribute
                 smp_obj = next(
-                    (s for s in self.split_merge_points if f"{s.vertiport_a.name}-{s.vertiport_b.name}" == smp_key),
+                    (s for s in self.split_merge_points if s.name == smp_key),
                     None
                 )
                 if smp_obj is None:

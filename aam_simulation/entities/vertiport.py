@@ -32,7 +32,6 @@ class Vertiport:
 
         self.pending_takeoff_ids = deque()
         self.takeoff_queue = deque() # UAV IDs waiting to take off
-        self.incoming_landing_times = [] # List of (time, uav_id) tuples
 
         self.charge_stations = [ChargeStation() for _ in range(num_charge_stations)]
         self.last_takeoff_time = -float('inf')
@@ -40,7 +39,7 @@ class Vertiport:
 
     def request_takeoff(self, uav_id: int) -> bool:
         """Store UAV as pending. Actual queueing is handled during tick()."""
-        if uav_id not in self.pending_takeoff_ids:
+        if uav_id not in self.pending_takeoff_ids and uav_id not in self.takeoff_queue:
             self.pending_takeoff_ids.append(uav_id)
     
     def assign_charge_station(self, uav_id: int) -> bool:
@@ -55,17 +54,8 @@ class Vertiport:
         """Defines vertiport behavior in each simulation tick."""
         for station in self.charge_stations:
             station.tick()
-        
-        # Try to promote pending UAVs into takeoff queue
-        for _ in range(len(self.pending_takeoff_ids)):
-            uav_id = self.pending_takeoff_ids.popleft()
-            if (self._can_takeoff(current_time)):
-                self.takeoff_queue.append(uav_id)
-                self.last_takeoff_time = -float('inf')  # Let _process_takeoffs() enforce time gap
-            else:
-                self.pending_takeoff_ids.append(uav_id)
 
-    def _can_takeoff(self, current_time: int) -> bool:
-        """Returns True if no takeoff or landing occurred in the last 60 seconds."""
-        return ((current_time - self.last_takeoff_time) >= config.TIME_BETWEEN_LANDING_TAKEOFF and
-                (current_time - self.last_landing_time) >= config.TIME_BETWEEN_LANDING_TAKEOFF)
+        # Promotes pending UAVs
+        while self.pending_takeoff_ids:
+            uav_id = self.pending_takeoff_ids.popleft()
+            self.takeoff_queue.append(uav_id)
