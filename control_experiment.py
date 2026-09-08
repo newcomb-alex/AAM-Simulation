@@ -8,7 +8,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "outputs"
 
 def run_experiment():
     increment = 0
-    n_configs = 20
+    n_configs = 5
     runs_per_config = 1
     runtime_sec = config.RUN_TIME_SEC
     min_lat_sep = config.DEFAULT_MIN_LAT_SEP

@@ -182,6 +182,8 @@ class Simulation:
             if airborne_ids[i] in collided_ids:
                 continue
             u1 = self.uavs[airborne_ids[i]]
+            if u1.position[2] == 0.0:
+                continue
             for j in range(i+1, len(airborne_ids)):
                 if airborne_ids[j] in collided_ids:
                     continue
