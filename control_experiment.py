@@ -1,11 +1,14 @@
 import csv
+from pathlib import Path
 from aam_simulation import config
 from aam_simulation.airspace_preset import get_airspace, get_num_routes
 from aam_simulation.simulation import Simulation
 
+OUTPUT_DIR = Path(__file__).resolve().parent / "outputs"
+
 def run_experiment():
     increment = 0
-    n_configs = 100
+    n_configs = 20
     runs_per_config = 1
     runtime_sec = config.RUN_TIME_SEC
     min_lat_sep = config.DEFAULT_MIN_LAT_SEP
@@ -58,12 +61,15 @@ def run_experiment():
               f"coll_rate={avg_collision_rate:.3f}")
 
     # write out CSV
-    with open("control_experiment_results.csv", "w", newline="") as csvfile:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_DIR / "control_experiment_results.csv"
+
+    with open(out_path, "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["UAVs_per_route", "avg_ter_rate", "avg_throughput_rate", "conflicts", "collisions"])
         writer.writerows(results)
 
-    print("Experiment complete. Results saved to experiment1_results.csv")
+    print(f"Experiment complete. Results saved to {out_path}")
 
 if __name__ == "__main__":
     run_experiment()
