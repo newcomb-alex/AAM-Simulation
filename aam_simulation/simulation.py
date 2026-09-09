@@ -191,9 +191,6 @@ class Simulation:
                     else:
                         # Only count and respond when conflict first detected
                         if not u1.in_conflict:
-                            print(f"Conflict found between UAV {u1.id} and UAV {u2.id}! Horizontal distance: {horiz_d}, vertical distance: {vert_d}") # DEBUG
-                            print(f"UAV {u1.id} state: {u1.state}. UAV {u2.id} state: {u2.state}") # DEBUG
-                            print(f"UAV {u1.id} destination: {u1.destination_vertiport.name}, UAV {u2.id} destination: {u2.destination_vertiport.name}")
                             self.conflict_count += 1
                             self.total_conflicts += 1
                             u1.initiate_evasive_action(u2, self.time, self.min_vert_sep)
