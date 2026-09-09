@@ -126,25 +126,10 @@ class Simulation:
     
     def _update_uavs(self):
         airborne_ids = []
-        # Track vertiports already being descended to, to serialize final approaches
-        descending_to = {
-            self.uavs[uid].destination_vertiport.name
-            for uid in self.active_uav_ids
-            if self.uavs[uid].state == UAV.STATE_DESCENT
-        }
         for uav_id in list(self.active_uav_ids):
             uav = self.uavs[uav_id]
             prev_state = uav.state
             uav.update_state(self.time)
-
-            # Prevent simultaneous landings: if this UAV just started descent but another
-            # is already descending to the same vertiport, hold it at cruise for this tick
-            if prev_state == UAV.STATE_CRUISE and uav.state == UAV.STATE_DESCENT:
-                dest_name = uav.destination_vertiport.name
-                if dest_name in descending_to:
-                    uav.state = UAV.STATE_CRUISE  # retry next tick
-                else:
-                    descending_to.add(dest_name)
 
             if prev_state == UAV.STATE_CHARGING and uav.state == UAV.STATE_TAXI:
                 # Completed one full trip
@@ -182,7 +167,9 @@ class Simulation:
             if airborne_ids[i] in collided_ids:
                 continue
             u1 = self.uavs[airborne_ids[i]]
-            if u1.position[2] == 0.0:
+            if u1.altitude == 0.0:
+                continue
+            if u1.state == UAV.STATE_CLIMB or u1.state == UAV.STATE_DESCENT:
                 continue
             for j in range(i+1, len(airborne_ids)):
                 if airborne_ids[j] in collided_ids:
@@ -204,6 +191,9 @@ class Simulation:
                     else:
                         # Only count and respond when conflict first detected
                         if not u1.in_conflict:
+                            print(f"Conflict found between UAV {u1.id} and UAV {u2.id}! Horizontal distance: {horiz_d}, vertical distance: {vert_d}") # DEBUG
+                            print(f"UAV {u1.id} state: {u1.state}. UAV {u2.id} state: {u2.state}") # DEBUG
+                            print(f"UAV {u1.id} destination: {u1.destination_vertiport.name}, UAV {u2.id} destination: {u2.destination_vertiport.name}")
                             self.conflict_count += 1
                             self.total_conflicts += 1
                             u1.initiate_evasive_action(u2, self.time, self.min_vert_sep)

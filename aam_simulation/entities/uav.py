@@ -363,8 +363,14 @@ class UAV:
         """
         elapsed = current_time - self.evasion_start_time
 
-        if self.evasion_type in {"AHEAD", "BEHIND"}:
-            if elapsed >= 60 and self.evasion_phase in {"SPEED_REDUCTION", "SPEED_INCREASE"}:
+        heading_2d = self.heading[:2]
+        if self.speed > 0.0 and np.linalg.norm(heading_2d) > 0.0:
+            h = unit_vector(heading_2d)
+            speed_fps = self.speed * config.KNOTS_TO_FT_PER_SEC
+            self.position += np.array([h[0], h[1], 0.0]) * speed_fps
+
+        if self.evasion_type in {"AHEAD", "BEHIND"} and self.evasion_phase in {"SPEED_REDUCTION", "SPEED_INCREASE"}:
+            if elapsed >= 60:
                 self.speed = self.original_speed
                 self.evasion_phase = None
                 self.in_conflict = False
@@ -452,6 +458,10 @@ class UAV:
             ]
             self.current_leg_index = 0
             self.destination_vertiport = self.route.alternate_vertiport
+            to_dest = np.array(self.destination_vertiport.position[:2]) - self.position[:2] # Update heading
+            if np.linalg.norm(to_dest) > 0.0:
+                h = unit_vector(to_dest)
+                self.heading = np.array([h[0], h[1], 0.0])
     
     def update_eta(self):
         """Updates the current ETA of the UAV in minutes"""
