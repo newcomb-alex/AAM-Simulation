@@ -1,12 +1,15 @@
 import csv
+from pathlib import Path
 from aam_simulation import config
 from aam_simulation.airspace_preset import get_airspace, get_num_routes
 from aam_simulation.simulation import Simulation
 
+OUTPUT_DIR = Path(__file__).resolve().parent / "outputs"
+
 def run_experiment():
     increment = 3
     n_configs = 15
-    runs_per_config = 10
+    runs_per_config = 30
     runtime_sec = config.RUN_TIME_SEC
     min_lat_sep = config.DEFAULT_MIN_LAT_SEP
     min_vert_sep = config.DEFAULT_MIN_VERT_SEP
@@ -18,6 +21,8 @@ def run_experiment():
     for idx in range(n_configs):
         per_route = config.UAVS_PER_ROUTE + (idx * increment)
 
+        ter_avg_counts = []
+        throughput_counts = []
         conflict_counts = []
         collision_counts = []
 
@@ -37,22 +42,30 @@ def run_experiment():
             stats = sim.get_statistics()
             conflict_counts.append(stats["num_conflicts"])
             collision_counts.append(stats["num_collisions"])
+            ter_avg_counts.append(stats["average_TER"])
+            throughput_counts.append(stats["throughput"])
 
         # average over runs
         avg_conflict_rate = sum(conflict_counts) / runs_per_config
         avg_collision_rate = sum(collision_counts) / runs_per_config
+        avg_ter_rate = sum(ter_avg_counts) / runs_per_config
+        avg_throughput_rate = sum(throughput_counts) / runs_per_config
 
-        results.append((per_route, avg_conflict_rate, avg_collision_rate))
+        results.append((per_route, avg_conflict_rate, avg_collision_rate, avg_ter_rate, avg_throughput_rate))
 
         print(f"Done config {idx+1}/{n_configs}: "
               f"UAVs/route={per_route} → "
-              f"conf_rate={avg_conflict_rate:.3f}/min, "
-              f"coll_rate={avg_collision_rate:.3f}/min")
+              f"conf_rate={avg_conflict_rate:.3f}, "
+              f"coll_rate={avg_collision_rate:.3f}, "
+              f"avg_ter_rate={avg_ter_rate:.3f}, "
+              f"avg_thru_rate={avg_throughput_rate:.3f}")
 
-    # write out CSV
-    with open("experiment1_results.csv", "w", newline="") as csvfile:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_DIR / "experiment1_results.csv"
+
+    with open(out_path, "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(["UAVs_per_route", "avg_conflicts_per_min", "avg_collisions_per_min"])
+        writer.writerow(["UAVs_per_route", "avg_conflicts_per_min", "avg_collisions_per_min", "avg_ter_rate", "avg_throughput_rate"])
         writer.writerows(results)
 
     print("Experiment complete. Results saved to experiment1_results.csv")

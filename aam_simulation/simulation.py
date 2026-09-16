@@ -74,7 +74,7 @@ class Simulation:
             for t in range(7200):
                 prev_state = cal_uav.state
                 cal_uav.update_state(t)
-                if prev_state == UAV.STATE_DESCENT and cal_uav.state in {UAV.STATE_CHARGING, UAV.STATE_HOLD}:
+                if prev_state == UAV.STATE_CHARGING and cal_uav.state == UAV.STATE_TAXI:
                     self.ideal_times[key] = cal_uav.trip_duration
                     # Reset destination vertiport state so main simulation is unaffected
                     dest_vert = cal_uav.destination_vertiport

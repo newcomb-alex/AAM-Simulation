@@ -264,7 +264,6 @@ class UAV:
         if corridor_info:
             _, _, _, _, heading_unit = corridor_info
             self.heading = np.array([heading_unit[0], heading_unit[1], 0.0])
-        self.trip_duration = 0
 
         # Clear any stale conflict/evasion state from the previous trip
         self.in_conflict = False
