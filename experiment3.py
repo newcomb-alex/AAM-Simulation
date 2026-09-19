@@ -1,7 +1,10 @@
 import csv
+from pathlib import Path
 from aam_simulation import config
 from aam_simulation.airspace_preset import get_airspace, get_num_routes
 from aam_simulation.simulation import Simulation
+
+OUTPUT_DIR = Path(__file__).resolve().parent / "outputs"
 
 def run_experiment():
     # Experiment 3: Vary minimum separation
@@ -68,12 +71,18 @@ def run_experiment():
               f"collisions={avg_collisions:.1f}")
 
     # write results to CSV
-    with open('experiment3_results.csv', 'w', newline='') as csvfile:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_DIR / "experiment3_results.csv"
+
+    with open(out_path, "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow([
-            'min_lat_sep', 'min_vert_sep',
-            'avg_TERavg', 'avg_throughput',
-            'avg_conflicts', 'avg_collisions'
+            "min_lat_sep",
+            "min_vert_sep",
+            "avg_ter",
+            "avg_throughput",
+            "avg_conflicts",
+            "avg_collisions"
         ])
         writer.writerows(results)
 
