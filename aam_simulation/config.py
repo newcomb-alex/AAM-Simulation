@@ -5,8 +5,8 @@ FT_IN_NM = 6076.0
 
 # Simulation Parameters
 MIN_DELAY_TIME_S = 300 # in seconds
-AIRSPACE = "Simple" # Either "Standard" or "Simple"
-UAVS_PER_ROUTE = 10
+AIRSPACE = "Standard" # Either "Standard" or "Simple"
+UAVS_PER_ROUTE = 5
 RUN_TIME_SEC = 12 * 60 * 60 # run time of simulation
 
 # Climb/descent rates (ft/s)
@@ -27,7 +27,7 @@ CHARGE_STATIONS = 40
 # Separation minimum defaults
 DEFAULT_MIN_LAT_SEP = 600.0 # feet
 DEFAULT_MIN_VERT_SEP = 100.0 # feet
-TIME_BETWEEN_LANDING_TAKEOFF = 120 # seconds
+TIME_BETWEEN_LANDING_TAKEOFF = 60 # seconds
 
 # Evasive turn rates (rad/s)
 TURN_RATE_OUTBOUND = math.radians(5.5)

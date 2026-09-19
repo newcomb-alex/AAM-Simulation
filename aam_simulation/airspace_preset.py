@@ -26,9 +26,9 @@ STANDARD = {
         {"id": 1, "waypoints": ["A", "B"], "alternate": "C"},
         {"id": 2, "waypoints": ["A", "SM:A-C", "C"], "alternate": "B"},
         {"id": 3, "waypoints": ["B", "C"], "alternate": "E"},
-        {"id": 4, "waypoints": ["B", "E"], "alternate": "C"},
+        {"id": 4, "waypoints": ["E", "B"], "alternate": "C"},
         {"id": 5, "waypoints": ["C", "D"], "alternate": "E"},
-        {"id": 6, "waypoints": ["C", "E"], "alternate": "B"},
+        {"id": 6, "waypoints": ["E", "C"], "alternate": "B"},
     ],
 }
 

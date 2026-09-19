@@ -22,6 +22,7 @@ class Simulation:
         self.uavs: Dict[int, UAV] = {}
         self.active_uav_ids = set()
         self.next_uav_id = 1
+        self.recorder = None
 
         # Instantiate UAVs on each route, enqueue for takeoff at t = 0
         for route_id, count in num_uavs_per_route.items():
@@ -86,17 +87,25 @@ class Simulation:
                             station.time_remaining = 0
                     break
 
-    def run(self, total_time_sec: int):
+    def run(self, total_time_sec: int, recorder=None):
+        self.recorder = recorder
+
         for t in range(total_time_sec):
             self.time = t
             self._process_takeoffs()
             self._update_uavs()
+
             for uav_id in list(self.active_uav_ids):
                 self.uavs[uav_id].update_eta()
-            if self.enable_delays and t > 0 and t % (5*60) == 0: # Delays refresh every 5 minutes
+
+            if self.enable_delays and t > 0 and t % (5 * 60) == 0:
                 self._evaluate_and_apply_delays()
+
             for v in self.airspace.vertiports.values():
                 v.tick(current_time=self.time)
+
+            if self.recorder is not None:
+                self.recorder.capture(self)
     
     def _process_takeoffs(self):
         for v in self.airspace.vertiports.values():
@@ -179,6 +188,9 @@ class Simulation:
                 if conflict:
                     horiz_d, vert_d = conflict
                     if horiz_d <= (u1.sphere_radius + u2.sphere_radius) and vert_d <= (u1.sphere_radius + u2.sphere_radius):
+                        if self.recorder is not None:
+                            self.recorder.event(self.time, "collision", u1, u2)
+
                         self.collision_count += 1
                         self.total_collisions += 1
                         if self.enable_delays:
@@ -191,6 +203,9 @@ class Simulation:
                     else:
                         # Only count and respond when conflict first detected
                         if not u1.in_conflict:
+                            if self.recorder is not None:
+                                self.recorder.event(self.time, "conflict", u1, u2)
+                                
                             self.conflict_count += 1
                             self.total_conflicts += 1
                             u1.initiate_evasive_action(u2, self.time, self.min_vert_sep)
