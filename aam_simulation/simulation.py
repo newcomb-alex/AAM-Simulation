@@ -141,31 +141,33 @@ class Simulation:
             uav.update_state(self.time)
 
             if prev_state == UAV.STATE_CHARGING and uav.state == UAV.STATE_TAXI:
-                # Completed one full trip
                 self.throughput_count += 1
-                actual_min = uav.trip_duration / 60.0
-                origin_name = uav.flight_plan[0].name
-                dest_name = uav.destination_vertiport.name
-                ideal_sec = self.ideal_times.get((origin_name, dest_name))
-                ideal_min = ideal_sec / 60.0 if ideal_sec is not None else None
-                ter = actual_min / ideal_min if ideal_min else 1.0
-                self.ter_list.append(ter)
 
-                # Re-enqueue this UAV for takeoff at its current vertiport
-                uav.route.waypoints.reverse()
-                uav.route.legs = [
-                    (uav.route.waypoints[i], uav.route.waypoints[i+1])
-                    for i in range(len(uav.route.waypoints) - 1)
-                ]
-                uav.flight_plan = uav.route.waypoints.copy()
-                uav.current_leg_index = 0
-                uav.destination_vertiport = uav.route.waypoints[-1]
-                uav.has_deviated = False
-                current_vertiport_name = uav.route.waypoints[0].name
-                self.airspace.vertiports[current_vertiport_name].request_takeoff(uav_id)
+                # Normal-route calibration is not a valid baseline for
+                # diverted trips or direct positioning flights.
+                if (
+                    not uav.direct_flight
+                    and not uav.returning_from_diversion
+                ):
+                    actual_min = uav.trip_duration / 60.0
+                    origin_name = uav.flight_plan[0].name
+                    dest_name = uav.destination_vertiport.name
 
-                # Reset its trip duration counter
-                uav.trip_duration = 0
+                    ideal_sec = self.ideal_times.get(
+                        (origin_name, dest_name)
+                    )
+                    if ideal_sec is not None and ideal_sec > 0.0:
+                        self.ter_list.append(
+                            actual_min / (ideal_sec / 60.0)
+                        )
+
+                uav.prepare_next_trip()
+
+                # Always enqueue at the actual origin of the next flight.
+                departure = uav.flight_plan[0]
+                self.airspace.vertiports[departure.name].request_takeoff(
+                    uav_id
+                )
 
             if uav.state in {UAV.STATE_CLIMB, UAV.STATE_CRUISE, UAV.STATE_DESCENT, UAV.STATE_EVASIVE, UAV.STATE_HOLD}:
                 airborne_ids.append(uav_id)
@@ -249,6 +251,13 @@ class Simulation:
         u.destination_vertiport = u.route.waypoints[-1]
         u.flight_plan = u.route.waypoints.copy()
         u.has_deviated = False
+
+        u.direct_flight = False
+        u.returning_from_diversion = False
+        u.direct_cruise_altitude = config.DIRECT_CRUISE_ALTITUDE_FT
+        u.waiting_for_charge = False
+        u.eta = None
+        u.trip_duration = 0
 
         u.in_conflict = False
         u.evasion_start_time = None

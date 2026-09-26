@@ -6,7 +6,7 @@ FT_IN_NM = 6076.0
 # Simulation Parameters
 MIN_DELAY_TIME_S = 300 # in seconds
 AIRSPACE = "Standard" # Either "Standard" or "Simple"
-UAVS_PER_ROUTE = 5
+UAVS_PER_ROUTE = 15
 RUN_TIME_SEC = 12 * 60 * 60 # run time of simulation
 
 # Climb/descent rates (ft/s)
@@ -39,3 +39,6 @@ MAX_SPEED_TO_INCREASE = 118.0 # knots, UAV must be at most this fast if it inten
 
 # Chance of deviation
 PROBABILITY_OF_DIVERTION = 0.001 / 60.0 # (0.001 per minute)
+
+# Fallback altitude for direct flights without an available corridor altitude.
+DIRECT_CRUISE_ALTITUDE_FT = 3000.0

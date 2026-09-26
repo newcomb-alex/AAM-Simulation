@@ -41,7 +41,12 @@ class UAV:
         self.eta = None
         self.trip_duration = 0
         self.time_to_charge = 0
+
+        #deviation
         self.has_deviated = False
+        self.direct_flight = False
+        self.direct_cruise_altitude = config.DIRECT_CRUISE_ALTITUDE_FT
+        self.returning_from_diversion = False
 
         # Evasive/conflict tracking
         self.in_conflict = False
@@ -56,15 +61,33 @@ class UAV:
         self.evasive_climb_target = None
 
     def _find_current_corridor(self):
-        """Return (corridor, origin, dest, altitude, heading_unit) for the current leg, or None."""
-        if self.current_leg_index >= len(self.route.legs):
+        """
+        Find the corridor for the current leg of the active flight plan.
+
+        Returns:
+            (corridor, origin, destination, altitude, heading_unit)
+            or None when this leg has no corridor.
+        """
+        index = self.current_leg_index
+
+        if index < 0 or index + 1 >= len(self.flight_plan):
             return None
-        origin, dest = self.route.legs[self.current_leg_index]
+
+        origin = self.flight_plan[index]
+        destination = self.flight_plan[index + 1]
+
         for corridor in self.corridors:
-            seg = corridor.get_segment_info(origin, dest)
-            if seg:
-                altitude, heading_unit = seg
-                return corridor, origin, dest, altitude, heading_unit
+            segment = corridor.get_segment_info(origin, destination)
+            if segment is not None:
+                altitude, heading_unit = segment
+                return (
+                    corridor,
+                    origin,
+                    destination,
+                    altitude,
+                    heading_unit,
+                )
+
         return None
     
     def update_state(self, time_step: int):
@@ -109,6 +132,12 @@ class UAV:
                     self.state = UAV.STATE_CHARGING
                     self.time_to_charge = config.CHARGE_TIME_SEC
                     self.waiting_for_charge = False
+            return
+
+        # Direct navigation overrides corridor guidance, but not evasion,
+        # charging, taxiing, or holding.
+        if self.direct_flight:
+            self._update_direct_flight(time_step)
             return
         
         # 4. CLIMB (Diagonal climb + accelerate)
@@ -264,6 +293,9 @@ class UAV:
         if corridor_info:
             _, _, _, _, heading_unit = corridor_info
             self.heading = np.array([heading_unit[0], heading_unit[1], 0.0])
+            
+        if self.direct_flight:
+            self.heading = self._direct_heading()
 
         # Clear any stale conflict/evasion state from the previous trip
         self.in_conflict = False
@@ -355,6 +387,67 @@ class UAV:
     def notify_secondary_conflict(self):
         self.secondary_conflict_detected = True
 
+    def prepare_next_trip(self):
+        """
+        Called after charging finishes.
+
+        Normal trip:
+            Reverse the scheduled route.
+
+        Diverted trip:
+            Return to the interrupted flight's departure vertiport.
+            Use its connecting corridor when one exists; otherwise fly direct.
+
+        Return from diversion:
+            Resume the unchanged scheduled route.
+        """
+        landed_at = self.destination_vertiport
+        self.current_leg_index = 0
+
+        if self.has_deviated:
+            original_departure = self.route.waypoints[0]
+
+            self.flight_plan = [landed_at, original_departure]
+            self.returning_from_diversion = True
+
+            # Resolve the RETURN leg, including its direction-specific altitude.
+            corridor_info = self._find_current_corridor()
+
+            if corridor_info is not None:
+                # Existing CLIMB/CRUISE/DESCENT handlers will use this
+                # corridor's altitude, heading, and descent distance.
+                self.direct_flight = False
+            else:
+                # No connecting corridor: retain direct-return behavior.
+                self.direct_flight = True
+                self.direct_cruise_altitude = (
+                    config.DIRECT_CRUISE_ALTITUDE_FT
+                )
+
+        elif self.returning_from_diversion:
+            # We have returned to the scheduled route's original departure.
+            self.flight_plan = self.route.waypoints.copy()
+            self.direct_flight = False
+            self.returning_from_diversion = False
+
+        else:
+            # Ordinary completed trip: reverse the scheduled route.
+            self.route.waypoints.reverse()
+            self.route.legs = list(zip(
+                self.route.waypoints[:-1],
+                self.route.waypoints[1:],
+            ))
+
+            self.flight_plan = self.route.waypoints.copy()
+            self.direct_flight = False
+            self.returning_from_diversion = False
+
+        self.destination_vertiport = self.flight_plan[-1]
+        self.has_deviated = False
+        self.waiting_for_charge = False
+        self.eta = None
+        self.trip_duration = 0
+
     def _handle_evasive(self, current_time: int):
         """
         Contains logic to handle the evasive manuever depending on if the intruding UAV is
@@ -376,15 +469,30 @@ class UAV:
                 self.state = UAV.STATE_CRUISE
             return
         
-        corridor_info = self._find_current_corridor()
-        if corridor_info:
-            _, _, _, _, desired_heading_unit = corridor_info
-            desired_heading_2d = np.array([desired_heading_unit[0], desired_heading_unit[1]])
+        if self.direct_flight:
+            # Finish the avoidance maneuver against a fixed heading.
+            # On the next normal update, direct guidance recomputes the
+            # bearing to the alternate from the new position.
+            #
+            # A fixed recovery heading also avoids endlessly chasing a
+            # moving bearing when very close to the destination.
+            desired_heading_2d = unit_vector(self.original_heading[:2])
         else:
-            desired_heading_2d = np.array([0.0, 0.0])
+            corridor_info = self._find_current_corridor()
+            if corridor_info:
+                _, _, _, _, desired_heading_unit = corridor_info
+                desired_heading_2d = np.array([
+                    desired_heading_unit[0],
+                    desired_heading_unit[1],
+                ])
+            else:
+                desired_heading_2d = unit_vector(self.original_heading[:2])
+
         current_heading_2d = unit_vector(self.heading[:2])
-        turn_rate_out = math.radians(config.TURN_RATE_OUTBOUND)
-        turn_rate_rec = math.radians(config.TURN_RATE_RECOVER)
+
+        # These configuration values are ALREADY in radians per second.
+        turn_rate_out = config.TURN_RATE_OUTBOUND
+        turn_rate_rec = config.TURN_RATE_RECOVER
 
         # Secondary conflict during turn-out → abort and climb
         if self.secondary_conflict_detected and self.evasion_phase in {"TURN_RIGHT_OUTBOUND", "TURN_LEFT_OUTBOUND"}:
@@ -441,26 +549,154 @@ class UAV:
             self.heading = np.array([new_h[0], new_h[1], 0.0])
 
     def maybe_deviate(self):
-        """Randomly deviate a UAV based on probability in config.py"""
-        if self.has_deviated:
+        """Attempt one diversion per flight; called once per simulated second."""
+        airborne_states = {
+            UAV.STATE_CLIMB,
+            UAV.STATE_CRUISE,
+            UAV.STATE_DESCENT,
+            UAV.STATE_EVASIVE,
+            UAV.STATE_HOLD,
+        }
+
+        if (
+            self.has_deviated
+            or self.returning_from_diversion
+            or self.direct_flight
+            or self.waiting_for_charge
+            or self.state not in airborne_states
+            or self.altitude <= 0.0
+        ):
+            return False
+
+        alternate = self.route.alternate_vertiport
+        if alternate is None or alternate is self.destination_vertiport:
+            return False
+
+        if random.random() >= config.PROBABILITY_OF_DIVERTION:
+            return False
+
+        # Capture the applicable altitude before enabling direct navigation.
+        corridor_info = self._find_current_corridor()
+        planned_altitude = (
+            corridor_info[3]
+            if corridor_info is not None
+            else config.DIRECT_CRUISE_ALTITUDE_FT
+        )
+        self.direct_cruise_altitude = max(self.altitude, planned_altitude)
+
+        self.has_deviated = True
+        self.direct_flight = True
+        self.destination_vertiport = alternate
+
+        # Retain the actual departure vertiport for trip accounting.
+        # Do not modify route.waypoints or route.legs.
+        self.flight_plan = [self.flight_plan[0], alternate]
+        self.current_leg_index = 0
+        self.eta = None
+
+        if self.state not in {UAV.STATE_EVASIVE, UAV.STATE_HOLD}:
+            self.heading = self._direct_heading()
+
+            # The direct-flight handler selects climb/cruise/descent next tick.
+            # In particular, do not continue an old approach to another airport.
+            self.state = UAV.STATE_CRUISE
+
+        return True
+
+    def _direct_heading(self):
+        """Horizontal unit vector from the current position to the destination."""
+        target_xy = np.asarray(
+            self.destination_vertiport.position[:2], dtype=float
+        )
+        delta = target_xy - self.position[:2]
+        distance = float(np.linalg.norm(delta))
+
+        if distance <= 1e-6:
+            return self.heading.copy()
+
+        return np.array([delta[0] / distance, delta[1] / distance, 0.0])
+
+
+    def _update_direct_flight(self, time_now: int):
+        """
+        Navigate directly to destination_vertiport without consulting corridors.
+
+        Uses one-second steps, matching Simulation.run().
+        Landing requires both arrival at the destination and zero altitude.
+        """
+        target_xy = np.asarray(
+            self.destination_vertiport.position[:2], dtype=float
+        )
+        distance = float(np.linalg.norm(target_xy - self.position[:2]))
+
+        if distance <= 1e-6 and self.altitude <= 0.0:
+            self.position[:2] = target_xy
+            self.position[2] = 0.0
+            self.altitude = 0.0
+            self.speed = 0.0
+            self._land_at_vertiport(self.destination_vertiport, time_now)
             return
-        if random.random() < config.PROBABILITY_OF_DIVERTION:
-            self.has_deviated = True
-            if self.current_leg_index < len(self.route.waypoints):
-                current_wp = self.route.waypoints[self.current_leg_index]
+
+        self.heading = self._direct_heading()
+
+        # Accelerate toward cruise speed using the same climb-time relationship
+        # as the existing corridor-flight model.
+        acceleration = (
+            config.CRUISE_SPEED_KT
+            * config.CLIMB_RATE_FPS
+            / self.direct_cruise_altitude
+        )
+        self.speed = min(
+            config.CRUISE_SPEED_KT,
+            max(0.0, self.speed) + acceleration,
+        )
+        speed_fps = self.speed * config.KNOTS_TO_FT_PER_SEC
+
+        # Number of one-second updates needed to descend from current altitude.
+        descent_steps = max(
+            1, math.ceil(self.altitude / config.DESCENT_RATE_FPS)
+        )
+
+        # Distance coverable over those updates with horizontal steps decreasing
+        # linearly toward touchdown.
+        approach_distance = speed_fps * (descent_steps + 1) / 2.0
+
+        if self.altitude > 0.0 and distance <= approach_distance:
+            self.state = UAV.STATE_DESCENT
+
+            # Recompute from the current position/altitude each update.
+            # This synchronizes arrival and touchdown, including after evasion.
+            step_ft = 2.0 * distance / (descent_steps + 1)
+
+            self.altitude = max(
+                0.0, self.altitude - config.DESCENT_RATE_FPS
+            )
+            self.speed = step_ft / config.KNOTS_TO_FT_PER_SEC
+        else:
+            if self.altitude < self.direct_cruise_altitude:
+                self.state = UAV.STATE_CLIMB
+                self.altitude = min(
+                    self.direct_cruise_altitude,
+                    self.altitude + config.CLIMB_RATE_FPS,
+                )
             else:
-                return
-            self.flight_plan = [current_wp, self.route.alternate_vertiport]
-            self.route.legs = [
-                (self.flight_plan[i], self.flight_plan[i+1])
-                for i in range(len(self.flight_plan)-1)
-            ]
-            self.current_leg_index = 0
-            self.destination_vertiport = self.route.alternate_vertiport
-            to_dest = np.array(self.destination_vertiport.position[:2]) - self.position[:2] # Update heading
-            if np.linalg.norm(to_dest) > 0.0:
-                h = unit_vector(to_dest)
-                self.heading = np.array([h[0], h[1], 0.0])
+                self.state = UAV.STATE_CRUISE
+
+            # Never step past the target.
+            step_ft = min(distance, speed_fps)
+
+        self.position[:2] += self.heading[:2] * step_ft
+        self.position[2] = self.altitude
+
+        remaining = float(np.linalg.norm(target_xy - self.position[:2]))
+
+        if remaining <= 1e-6 and self.altitude <= 0.0:
+            # Only remove numerical rounding error, not a remaining flight leg.
+            self.position[:2] = target_xy
+            self.altitude = 0.0
+            self.position[2] = 0.0
+            self.speed = 0.0
+            self._land_at_vertiport(self.destination_vertiport, time_now)
     
     def update_eta(self):
         """Updates the current ETA of the UAV in minutes"""
