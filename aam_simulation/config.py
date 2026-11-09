@@ -6,7 +6,7 @@ FT_IN_NM = 6076.0
 # Simulation Parameters
 MIN_DELAY_TIME_S = 300 # in seconds
 AIRSPACE = "Standard" # Either "Standard" or "Simple"
-UAVS_PER_ROUTE = 15
+UAVS_PER_ROUTE = 5
 RUN_TIME_SEC = 12 * 60 * 60 # run time of simulation
 
 # Climb/descent rates (ft/s)
